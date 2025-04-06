@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import torch
+import time
 from transformers import AutoTokenizer, Gemma3ForCausalLM
 import prompts
 
@@ -19,6 +20,7 @@ tokenizer = AutoTokenizer.from_pretrained(ckpt)
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
+    start_time = time.time()
     user_msg = request.args.get("messages", "")
     if not user_msg:
         return jsonify({"error": "Message is required"}), 400
@@ -44,7 +46,8 @@ def chat():
     input_len = inputs["input_ids"].shape[-1]
     generation = model.generate(**inputs, max_new_tokens=100, do_sample=False)
     response = tokenizer.decode(generation[0][input_len:], skip_special_tokens=True)
-
+    end = time.time()
+    print(f"Execution time: {end - start_time:.3f} seconds")
     return jsonify({"response": response})
 
 if __name__ == "__main__":
