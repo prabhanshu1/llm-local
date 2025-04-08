@@ -18,10 +18,10 @@ tokenizer = AutoTokenizer.from_pretrained(ckpt)
 
 
 
-@app.route("/api/chat", methods=["POST"])
+@app.route("/api/chat/", methods=["POST"])
 def chat():
     start_time = time.time()
-    user_msg = request.args.get("messages", "")
+    user_msg = request.json.get("messages", "")
     if not user_msg:
         return jsonify({"error": "Message is required"}), 400
 
