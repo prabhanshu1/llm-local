@@ -4,7 +4,12 @@ import time
 from transformers import AutoTokenizer, Gemma3ForCausalLM, AutoModelForCausalLM
 import prompts
 
-app = Flask(__name__)
+from fastapi import FastAPI, Request
+from pydantic import BaseModel
+from transformers import AutoTokenizer, Gemma3ForCausalLM
+import torch
+
+app = FastAPI()
 
 # Load model and tokenizer
 model_id = "google/gemma-3-4b-it"
@@ -22,15 +27,17 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 #     torch_dtype=torch.bfloat16
 # ).eval()
 
+class Message(BaseModel):
+    message: str
 
-
-
-@app.route("/api/chat/", methods=["POST"])
-def chat():
+@app.post("/api/chat/")
+async def chat(payload: Message):
     start_time = time.time()
-    user_msg = request.json.get("messages", "")
-    if not user_msg:
-        return jsonify({"error": "Message is required"}), 400
+    prompt = payload.message
+    # user_msg = request.json.get("messages", "")
+
+    # if not prompt:
+    #     return jsonify({"error": "Message is required"}), 400
 
     messages = [
         [
@@ -40,18 +47,21 @@ def chat():
             },
             {
                 "role": "user",
-                "content": [{"type": "text", "text": user_msg}],
+                "content": [{"type": "text", "text": prompt}],
             },
         ]
     ]
 
-    inputs = tokenizer.apply_chat_template(
-        messages, 
-        add_generation_prompt=True, 
-        tokenize=True,
-        return_dict=True, 
-        return_tensors="pt"
-    ).to(model.device)
+    # inputs = tokenizer.apply_chat_template(
+    #     messages, 
+    #     add_generation_prompt=True, 
+    #     tokenize=True,
+    #     return_dict=True, 
+    #     return_tensors="pt"
+    # ).to(model.device)
+
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+
 
     # input_len = inputs["input_ids"].shape[-1]
     input_len = inputs.input_ids.shape[-1]
@@ -63,9 +73,11 @@ def chat():
             do_sample=False
         )
     # generation = model.generate(**inputs, max_new_tokens=100, do_sample=False)
-    output_ids = output[0][input_len:]
-    response = tokenizer.decode(output_ids, skip_special_tokens=True)
-    # response = tokenizer.decode(generation[0][input_len:], skip_special_tokens=True)
+    
+    response = tokenizer.decode(output[0], skip_special_tokens=True)
+
+    # output_ids = output[0][input_len:]
+    # response = tokenizer.decode(output_ids, skip_special_tokens=True)
     end = time.time()
     print(f"Execution time: {end - start_time:.3f} seconds")
     return jsonify({"response": response})
