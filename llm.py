@@ -9,10 +9,15 @@ app = FastAPI()
 llm = Llama.from_pretrained(
     repo_id="google/gemma-3-4b-it-qat-q4_0-gguf",
     filename="gemma-3-4b-it-q4_0.gguf",
-    n_ctx=2048,
-    n_gpu_layers=35,  # Adjust based on your GPU RAM
+    n_ctx=4096,
+    n_gpu_layers=100,
+    n_threads=4,
+    n_batch=64,
     verbose=False
 )
+
+_ = llm("Warm-up prompt", max_tokens=1)
+
 
 class Message(BaseModel):
     role: str
@@ -36,12 +41,13 @@ async def chat(request: ChatRequest):
     # Generate
     output = llm(
         conversation,
-        max_tokens=256,
+        max_tokens=64,
         temperature=request.temperature,
         stop=["User:", "Assistant:"],
+        stream=True
     )
 
     response_text = output["choices"][0]["text"].strip()
-    print(f"⏱️  Latency: {time.time() - start:.2f}s")
+    print(f"⏱️ Latency: {time.time() - start:.2f}s")
 
     return {"response": response_text}
