@@ -1,86 +1,47 @@
-from flask import Flask, request, jsonify
-import torch
-import time
-from transformers import AutoTokenizer, Gemma3ForCausalLM, AutoModelForCausalLM
-import prompts
-
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from pydantic import BaseModel
-from transformers import AutoTokenizer, Gemma3ForCausalLM
-import torch
+from llama_cpp import Llama
+import time
 
 app = FastAPI()
 
-# Load model and tokenizer
-model_id = "google/gemma-3-4b-it"
-model = Gemma3ForCausalLM.from_pretrained(
-    model_id, torch_dtype=torch.bfloat16, device_map="auto"
-).eval()
-
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-
-# tokenizer = AutoTokenizer.from_pretrained(model_id)
-# model = AutoModelForCausalLM.from_pretrained(
-#     model_id,
-#     device_map="auto",
-#     torch_dtype=torch.bfloat16
-# ).eval()
+# Load the quantized Gemma 3 4B model directly from Hugging Face
+llm = Llama.from_pretrained(
+    repo_id="google/gemma-3-4b-it-qat-q4_0-gguf",
+    filename="gemma-3-4b-it-q4_0.gguf",
+    n_ctx=2048,
+    n_gpu_layers=35,  # Adjust based on your GPU RAM
+    verbose=False
+)
 
 class Message(BaseModel):
-    message: str
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    message: list[Message]
+    temperature: float = 0.7
 
 @app.post("/api/chat/")
-async def chat(payload: Message):
-    start_time = time.time()
-    prompt = payload.message
-    # user_msg = request.json.get("messages", "")
+async def chat(request: ChatRequest):
+    start = time.time()
 
-    # if not prompt:
-    #     return jsonify({"error": "Message is required"}), 400
+    # Convert messages into plain text prompt
+    conversation = ""
+    for msg in request.message:
+        prefix = "User" if msg.role == "user" else "Assistant"
+        conversation += f"{prefix}: {msg.content.strip()}\n"
+    conversation += "Assistant:"
 
-    messages = [
-        [
-            {
-                "role": "system",
-                "content": [{"type": "text", "text": prompts.LLM_SYSTEM_PROMPT}],
-            },
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": prompt}],
-            },
-        ]
-    ]
+    # Generate
+    output = llm(
+        conversation,
+        max_tokens=256,
+        temperature=request.temperature,
+        stop=["User:", "Assistant:"],
+    )
 
-    # inputs = tokenizer.apply_chat_template(
-    #     messages, 
-    #     add_generation_prompt=True, 
-    #     tokenize=True,
-    #     return_dict=True, 
-    #     return_tensors="pt"
-    # ).to(model.device)
+    response_text = output["choices"][0]["text"].strip()
+    print(f"⏱️  Latency: {time.time() - start:.2f}s")
 
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-
-
-    # input_len = inputs["input_ids"].shape[-1]
-    input_len = inputs.input_ids.shape[-1]
-
-    with torch.inference_mode():
-        output = model.generate(
-            **inputs,
-            max_new_tokens=100,
-            do_sample=False
-        )
-    # generation = model.generate(**inputs, max_new_tokens=100, do_sample=False)
-    
-    response = tokenizer.decode(output[0], skip_special_tokens=True)
-
-    # output_ids = output[0][input_len:]
-    # response = tokenizer.decode(output_ids, skip_special_tokens=True)
-    end = time.time()
-    print(f"Execution time: {end - start_time:.3f} seconds")
-    return jsonify({"response": response})
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    return {"response": response_text}
